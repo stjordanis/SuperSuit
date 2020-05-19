@@ -11,6 +11,9 @@ class ObservationWrapper(BaseWrapper):
     def _modify_action(self, agent, action):
         return action
 
+    def _modify_reward(self, agent, reward):
+        return reward
+
     def _update_step(self, agent, observation):
         pass
 
@@ -117,7 +120,7 @@ class pad_observations(ObservationWrapper):
         new_obs = homogenize_ops.homogenize_observations(self._obs_space,observation)
         return new_obs
 
-class frame_stack(BaseWrapper):
+class frame_stack(ObservationWrapper):
     def __init__(self,env,num_frames=4):
         self.stack_size = num_frames
         super().__init__(env)
@@ -139,9 +142,6 @@ class frame_stack(BaseWrapper):
     def _modify_spaces(self):
         self.observation_spaces = {agent: stack_obs_space(space, self.stack_size)  for agent,space in self.observation_spaces.items()}
 
-    def _modify_action(self, agent, action):
-        return action
-
     def _modify_observation(self, agent, observation):
         return self.stacks[agent]
 
@@ -156,6 +156,9 @@ class ActionWrapper(BaseWrapper):
 
     def _modify_observation(self, agent, observation):
         return observation
+
+    def _modify_reward(self, agent, reward):
+        return reward
 
     def _update_step(self, agent, observation):
         pass
@@ -229,3 +232,27 @@ class continuous_actions(ActionWrapper):
         res = super().step(action, observe)
         self._remove_infos()
         return res
+
+class RewardWrapper(BaseWrapper):
+    def _modify_observation(self, agent, observation):
+        return observation
+
+    def _modify_action(self, agent, action):
+        return action
+
+    def _update_step(self, agent, observation):
+        pass
+
+    def _check_wrapper_params(self):
+        pass
+
+    def _modify_spaces(self):
+        pass
+
+class reward_lambda(RewardWrapper):
+    def __init__(self, change_reward_fn):
+        self.change_reward_fn = change_reward_fn
+        assert callable(change_reward_fn), "change_reward_fn needs to be a function that takes two parameters, an agent and a reward. It is {}".format(change_reward_fn)
+
+    def _modify_reward(self, agent, reward):
+        return self.change_reward_fn(agent, reward)

@@ -43,6 +43,9 @@ class BaseWrapper(AECEnv):
     def _update_step(self, agent, observation):
         raise NotImplementedError()
 
+    def _modify_reward(self, agent, reward):
+        return reward
+
     def close(self):
         self.env.close()
 
@@ -55,7 +58,7 @@ class BaseWrapper(AECEnv):
 
         self.agent_selection = self.env.agent_selection
         self.agent_order = self.env.agent_order
-        self.rewards = self.env.rewards
+        self.rewards = {agent: self._modify_reward(agent, reward) for agent,reward in self.env.rewards.items()}
         self.dones = self.env.dones
         self.infos = self.env.infos
 
@@ -82,9 +85,15 @@ class BaseWrapper(AECEnv):
 
         self.agent_selection = self.env.agent_selection
         self.agent_order = self.env.agent_order
-        self.rewards = self.env.rewards
         self.dones = self.env.dones
         self.infos = self.env.infos
+
+        # update next agent's reward
+        if self.dones[self.agent_selection]:
+            self.rewards = {agent: self._modify_reward(agent, reward) for agent,reward in self.env.rewards.items()}
+        else:
+            next_reward = self.env.rewards[self.agent_selection]
+            self.rewards[self.agent_selection] = self._modify_reward(self.agent_selection, next_reward)
 
         if observe:
             next_obs = self._modify_observation(new_agent,next_obs)
