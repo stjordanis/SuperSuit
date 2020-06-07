@@ -108,12 +108,9 @@ class _SeperableAECWrapper:
 def sig_handle(signal_object, argvar):
     raise RuntimeError()
 
-has_initted = False
 def init_parallel_env():
-    global has_initted
-    if not has_initted:
-        signal.signal(signal.SIGINT, sig_handle)
-        signal.signal(signal.SIGTERM, sig_handle)
+    signal.signal(signal.SIGINT, sig_handle)
+    signal.signal(signal.SIGTERM, sig_handle)
 
 def write_out_data(rewards, dones, num_envs, start_index, shared_data):
     for agent in shared_data:
@@ -152,55 +149,57 @@ def decompress_info(agents, num_envs, idx_starts, comp_infos):
 
 
 def env_worker(env_constructors, total_num_envs, idx_start, my_num_envs, agent_arrays, env_arrays, pipe):
-    env = _SeperableAECWrapper(env_constructors, my_num_envs)
-    shared_datas = {agent: AgentSharedData(total_num_envs,
-                                SpaceWrapper(env.env.observation_spaces[agent]),
-                                SpaceWrapper(env.env.action_spaces[agent]),
-                                agent_arrays[agent])
-                        for agent in env.agents}
+    try:
+        env = _SeperableAECWrapper(env_constructors, my_num_envs)
+        shared_datas = {agent: AgentSharedData(total_num_envs,
+                                    SpaceWrapper(env.env.observation_spaces[agent]),
+                                    SpaceWrapper(env.env.action_spaces[agent]),
+                                    agent_arrays[agent])
+                            for agent in env.agents}
 
-    env_datas = EnvSharedData(total_num_envs, env_arrays)
+        env_datas = EnvSharedData(total_num_envs, env_arrays)
 
 
-    while True:
-        #pipe.close()
-        instruction, data = pipe.recv()
-        if instruction == "reset":
-            do_observe = data
-            obs = env.reset(do_observe)
-            write_out_data(env.rewards,env.dones,my_num_envs,idx_start,shared_datas)
-            env_dones = np.zeros(my_num_envs,dtype=np.bool)
-            write_env_data(env_dones,env.get_agent_indexes(),my_num_envs, idx_start, env_datas)
-            if do_observe:
-                # this observation gets overridden if the agent_selection is non-deterministic
-                agent_observe = env.envs[0].agent_selection
+        while True:
+            instruction, data = pipe.recv()
+            if instruction == "reset":
+                do_observe = data
+                obs = env.reset(do_observe)
+                write_out_data(env.rewards,env.dones,my_num_envs,idx_start,shared_datas)
+                env_dones = np.zeros(my_num_envs,dtype=np.bool)
+                write_env_data(env_dones,env.get_agent_indexes(),my_num_envs, idx_start, env_datas)
+                if do_observe:
+                    # this observation gets overridden if the agent_selection is non-deterministic
+                    agent_observe = env.envs[0].agent_selection
+                    write_obs(obs, my_num_envs, idx_start, shared_datas[agent_observe])
+
+                pipe.send(compress_info(env.infos))
+
+            elif instruction == "observe":
+                agent_observe = data
+                obs = env.observe(agent_observe)
                 write_obs(obs, my_num_envs, idx_start, shared_datas[agent_observe])
 
-            pipe.send(compress_info(env.infos))
+                pipe.send(True)
+            elif instruction == "step":
+                step_agent, do_observe = data
 
-        elif instruction == "observe":
-            agent_observe = data
-            obs = env.observe(agent_observe)
-            write_obs(obs, my_num_envs, idx_start, shared_datas[agent_observe])
+                actions = shared_datas[step_agent].act.nparr[idx_start:idx_start+my_num_envs]
 
-            pipe.send(True)
-        elif instruction == "step":
-            step_agent, do_observe = data
+                obs,env_dones = env.step(step_agent, actions, do_observe)
+                write_out_data(env.rewards,env.dones,my_num_envs,idx_start,shared_datas)
+                write_env_data(env_dones, env.get_agent_indexes(), my_num_envs, idx_start, env_datas)
+                if do_observe:
+                    agent_observe = env.envs[0].agent_selection
+                    write_obs(obs, my_num_envs, idx_start, shared_datas[agent_observe])
 
-            actions = shared_datas[step_agent].act.nparr[idx_start:idx_start+my_num_envs]
-
-            obs,env_dones = env.step(step_agent, actions, do_observe)
-            write_out_data(env.rewards,env.dones,my_num_envs,idx_start,shared_datas)
-            write_env_data(env_dones, env.get_agent_indexes(), my_num_envs, idx_start, env_datas)
-            if do_observe:
-                agent_observe = env.envs[0].agent_selection
-                write_obs(obs, my_num_envs, idx_start, shared_datas[agent_observe])
-
-            pipe.send(compress_info(env.infos))
-        elif instruction == "terminate":
-            return
-        else:
-            assert False, "Bad instruction sent to ProcVectorEnv worker"
+                pipe.send(compress_info(env.infos))
+            elif instruction == "terminate":
+                return
+            else:
+                assert False, "Bad instruction sent to ProcVectorEnv worker"
+    except Exception as e:
+        pipe.send(e)
 
 class ProcVectorEnv(VectorAECWrapper):
     def __init__(self, env_constructors, num_cpus=None):
@@ -270,11 +269,17 @@ class ProcVectorEnv(VectorAECWrapper):
             cur_selection = self._agent_selector.next()
         return cur_selection
 
-    def _load_next_data(self, observe, reset):
-        all_compressed_info = []
+    def _receive_info(self):
+        all_data = []
         for cin in self.con_ins:
-            compressed_info = cin.recv()
-            all_compressed_info.append(compressed_info)
+            data = cin.recv()
+            if isinstance(data,Exception):
+                raise data
+            all_data.append(data)
+        return all_data
+
+    def _load_next_data(self, observe, reset):
+        all_compressed_info = self._receive_info()
 
         all_info = decompress_info(self.agents, self.num_envs, self.env_starts, all_compressed_info)
 
@@ -318,8 +323,7 @@ class ProcVectorEnv(VectorAECWrapper):
             cin.send(("observe", agent))
 
         # wait until all are finished
-        for cin in self.con_ins:
-            cin.recv()
+        self._receive_info()
 
         obs = np.copy(self.shared_datas[self.agent_selection].obs.nparr)
         return obs

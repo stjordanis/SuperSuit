@@ -26,6 +26,14 @@ class VectorAECWrapper:
             cur_selection = self._agent_selector.next()
         return cur_selection
 
+    def _collect_dicts(self):
+        self.rewards = {agent: np.array([env.rewards[agent] for env in self.envs],dtype=np.float64) for agent in self.agents}
+        self.dones = {agent: np.array([env.dones[agent] for env in self.envs],dtype=np.bool) for agent in self.agents}
+        env_dones = np.array([all(env.dones.values()) for env in self.envs],dtype=np.bool)
+        self.infos = {agent: [env.infos[agent] for env in self.envs] for agent in self.agents}
+        passes = np.array([env.agent_selection != self.agent_selection for env in self.envs],dtype=np.bool)
+        return env_dones,passes
+
     def reset(self, observe=True):
         '''
         returns: list of observations
@@ -34,14 +42,10 @@ class VectorAECWrapper:
         for env in self.envs:
             observations.append(env.reset(observe))
 
-        self.rewards = {agent: [env.rewards[agent] for env in self.envs] for agent in self.agents}
-        self.dones = {agent: [env.dones[agent] for env in self.envs] for agent in self.agents}
-        self.env_dones = [all(env.dones.values()) for env in self.envs]
-        self.infos = {agent: [env.infos[agent] for env in self.envs] for agent in self.agents}
         self.agent_selection = self._agent_selector.reset()
         self.agent_selection = self._find_active_agent()
 
-        passes = [env.agent_selection != self.agent_selection for env in self.envs]
+        env_dones,passes = self._collect_dicts()
 
         return (observations if observe else None),passes
 
@@ -49,7 +53,7 @@ class VectorAECWrapper:
         observations = []
         for env in self.envs:
             observations.append(env.observe(agent))
-        return observations
+        return np.stack(observations)
 
     def last(self):
         last_agent = self.agent_selection
@@ -67,13 +71,14 @@ class VectorAECWrapper:
         self.agent_selection = self._find_active_agent()
         new_agent = self.agent_selection
 
+        env_dones,passes = self._collect_dicts()
 
-        self.rewards = {agent: [env.rewards[agent] for env in self.envs] for agent in self.agents}
-        self.dones = {agent: [env.dones[agent] for env in self.envs] for agent in self.agents}
-        self.infos = {agent: [env.infos[agent] for env in self.envs] for agent in self.agents}
+        # self.rewards = {agent: [env.rewards[agent] for env in self.envs] for agent in self.agents}
+        # self.dones = {agent: [env.dones[agent] for env in self.envs] for agent in self.agents}
+        # self.infos = {agent: [env.infos[agent] for env in self.envs] for agent in self.agents}
         # self._agent_selections = [env.agent_selection for env in self.envs]
         # self.agent_selection = self._agent_selections[0]
-        env_dones = [all(env.dones.values()) for env in self.envs]
+        #env_dones = [all(env.dones.values()) for env in self.envs]
         for i,(env,done) in enumerate(zip(self.envs,env_dones)):
             if done:
                 observations[i] = env.reset(observe)
