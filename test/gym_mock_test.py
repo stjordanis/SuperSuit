@@ -17,6 +17,14 @@ def test_reshape():
     first_obs,_,_,_ = env.step(5)
     assert np.all(np.equal(first_obs,base_obs.reshape([64,3])))
 
+def test_cap_duration():
+    base_env = DummyEnv(base_obs, base_obs_space, base_act_spaces)
+    env = gym_wrappers.cap_duration(base_env,2)
+    env.reset()
+    for i in range(2):
+        obs,rew,done,inf = env.step(0)
+    assert done
+
 def new_dummy():
     return  DummyEnv(base_obs, base_obs_space, base_act_spaces)
 
@@ -32,6 +40,7 @@ wrappers = [
     #gym_wrappers.normalize_reward(new_dummy()),
     gym_wrappers.reward_lambda(new_dummy(),lambda x: x/10),
     gym_wrappers.clip_reward(new_dummy()),
+    gym_wrappers.cap_duration(new_dummy(),5),
 ]
 @pytest.mark.parametrize("env", wrappers)
 def test_basic_wrappers(env):

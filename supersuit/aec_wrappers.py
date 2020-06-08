@@ -7,6 +7,21 @@ from .action_transforms import continuous_action_ops
 from .adv_transforms import agent_indicator as agent_ider
 import numpy as np
 
+class AllPassWrapper(BaseWrapper):
+    def _check_wrapper_params(self):
+        pass
+
+    def _modify_spaces(self):
+        pass
+
+    def _modify_action(self, agent, action):
+        pass
+
+    def _modify_observation(self, agent, observation):
+        pass
+
+    def _update_step(self, agent, observation):
+        pass
 
 class ObservationWrapper(BaseWrapper):
     def _modify_action(self, agent, action):
@@ -248,8 +263,7 @@ class continuous_actions(ActionWrapper):
         self._remove_infos()
         return res
 
-
-class RewardWrapper(ActionWrapper,ObservationWrapper):
+class RewardWrapper(AllPassWrapper):
     def _check_wrapper_params(self):
         pass
 
@@ -275,3 +289,18 @@ class clip_reward(RewardWrapper):
 
     def _change_reward_fn(self, rew):
         return max(min(rew, self.upper_bound), self.lower_bound)
+
+class cap_duration(AllPassWrapper):
+    def __init__(self, env, max_steps):
+        self.max_steps = max_steps
+        assert max_steps > 0, "max_steps must be a number greater than zero"
+        super().__init__(env)
+
+    def reset(self, observe=False):
+        self.n_frames = 0
+        return super().reset(observe)
+
+    def _update_step(self, agent, obs):
+        if self.n_frames >= self.max_steps:
+            self.dones = {agent: True for agent in self.agents}
+        self.n_frames += 1

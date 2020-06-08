@@ -34,6 +34,14 @@ def test_frame_stack():
         nth_obs = env.step(2)
     assert nth_obs == ((3*5+3)*5+3)*5+3
 
+def test_cap_duration():
+    base_env = DummyEnv(base_obs, base_obs_space, base_act_spaces)
+    env = aec_wrappers.cap_duration(base_env,2)
+    env.reset()
+    for i in range(2):
+        obs = env.step(0)
+    assert all(env.dones.values())
+
 def test_agent_indicator():
     let = ["a","a","b"]
     base_obs = {"{}_{}".format(let[idx],idx): np.zeros([2,3]) for idx in range(3)}
@@ -85,6 +93,7 @@ wrappers = [
     #aec_wrappers.normalize_reward(new_dummy()),
     aec_wrappers.reward_lambda(new_dummy(), lambda x:x/10),
     aec_wrappers.clip_reward(new_dummy()),
+    aec_wrappers.cap_duration(new_dummy(),5),
 ]
 @pytest.mark.parametrize("env", wrappers)
 def test_basic_wrappers(env):

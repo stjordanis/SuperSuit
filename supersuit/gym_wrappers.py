@@ -189,3 +189,19 @@ class clip_reward(RewardWrapper):
 
     def _change_reward_fn(self, rew):
         return max(min(rew, self.upper_bound), self.lower_bound)
+
+class cap_duration(gym.Wrapper):
+    def __init__(self, env, max_steps):
+        super().__init__(env)
+        self.max_steps = max_steps
+        assert max_steps > 0, "max_steps must be a number greater than zero"
+
+    def reset(self):
+        self.n_frames = 0
+        return super().reset()
+
+    def step(self, action):
+        if self.n_frames >= self.max_steps:
+            self.dones = {agent: True for agent in self.agents}
+        self.n_frames += 1
+        return super().step(action)
