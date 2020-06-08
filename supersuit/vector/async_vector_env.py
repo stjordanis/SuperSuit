@@ -202,7 +202,7 @@ def env_worker(env_constructors, total_num_envs, idx_start, my_num_envs, agent_a
         pipe.send(e)
 
 class ProcVectorEnv(VectorAECWrapper):
-    def __init__(self, env_constructors, num_cpus=None):
+    def __init__(self, env_constructors, num_cpus=None, return_copy=True):
         # set signaling so that crashing is handled gracefully
         init_parallel_env()
 
@@ -245,6 +245,7 @@ class ProcVectorEnv(VectorAECWrapper):
         env_arrays = create_env_data(num_envs)
 
         self.env_datas = EnvSharedData(num_envs, env_arrays)
+        self.return_copy = return_copy
 
         self.procs = []
         self.pipes = [mp.Pipe() for _ in range(num_cpus)]
@@ -278,6 +279,12 @@ class ProcVectorEnv(VectorAECWrapper):
             all_data.append(data)
         return all_data
 
+    def copy(self, data):
+        if self.return_copy:
+            return np.copy(data)
+        else:
+            return data
+
     def _load_next_data(self, observe, reset):
         all_compressed_info = self._receive_info()
 
@@ -296,12 +303,12 @@ class ProcVectorEnv(VectorAECWrapper):
                 obs = self.observe(self.agent_selection)
             self.order_is_nondeterministic = True
 
-        self.dones = {agent: np.copy(self.shared_datas[agent].dones.nparr) for agent in self.agents}
-        self.rewards = {agent: np.copy(self.shared_datas[agent].rewards.nparr) for agent in self.agents}
+        self.dones = {agent: self.copy(self.shared_datas[agent].dones.nparr) for agent in self.agents}
+        self.rewards = {agent: self.copy(self.shared_datas[agent].rewards.nparr) for agent in self.agents}
         self.infos = all_info
         env_dones = self.env_datas.env_dones.nparr
 
-        return (np.copy(obs) if observe else None), np.copy(passes), np.copy(env_dones)
+        return (self.copy(obs) if observe else None), self.copy(passes), self.copy(env_dones)
 
     def reset(self, observe=True):
         for cin in self.con_ins:
@@ -325,7 +332,7 @@ class ProcVectorEnv(VectorAECWrapper):
         # wait until all are finished
         self._receive_info()
 
-        obs = np.copy(self.shared_datas[self.agent_selection].obs.nparr)
+        obs = self.copy(self.shared_datas[self.agent_selection].obs.nparr)
         return obs
 
     def __del__(self):

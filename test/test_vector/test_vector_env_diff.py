@@ -67,14 +67,14 @@ def test_async_vector_env(env_constructor, should_seed):
 
         vec_obs = vecenv.observe(vecenv.agent_selection)
         async_obs = asyncenv.observe(asyncenv.agent_selection)
-        assert np.all(np.equal(np.asarray(vec_obs,dtype=obs_dtype), async_obs))
+        assert np.all(np.equal(vec_obs, async_obs))
 
         vec_obs,vec_pass,vec_dones = vecenv.step(actions)
         async_obs,asyc_pass,async_dones = asyncenv.step(actions)
 
         assert np.all(np.equal(vec_dones, async_dones))
         assert np.all(np.equal(vec_pass, asyc_pass))
-        assert np.all(np.equal(np.array(vec_obs,dtype=obs_dtype)[(1^np.array(vec_pass)).astype(np.bool)], np.array(async_obs)[(1^np.array(asyc_pass)).astype(np.bool)]))
+        assert np.all(np.equal(vec_obs, async_obs))
         assert_states_equal(vecenv, asyncenv)
 
         # if all(env.dones.values()):

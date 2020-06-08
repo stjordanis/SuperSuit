@@ -31,8 +31,7 @@ class VectorAECWrapper:
         self.dones = {agent: np.array([env.dones[agent] for env in self.envs],dtype=np.bool) for agent in self.agents}
         env_dones = np.array([all(env.dones.values()) for env in self.envs],dtype=np.bool)
         self.infos = {agent: [env.infos[agent] for env in self.envs] for agent in self.agents}
-        passes = np.array([env.agent_selection != self.agent_selection for env in self.envs],dtype=np.bool)
-        return env_dones,passes
+        return env_dones
 
     def reset(self, observe=True):
         '''
@@ -45,9 +44,10 @@ class VectorAECWrapper:
         self.agent_selection = self._agent_selector.reset()
         self.agent_selection = self._find_active_agent()
 
-        env_dones,passes = self._collect_dicts()
+        env_dones = self._collect_dicts()
+        passes = np.array([env.agent_selection != self.agent_selection for env in self.envs],dtype=np.bool)
 
-        return (observations if observe else None),passes
+        return (np.stack(observations) if observe else None),passes
 
     def observe(self, agent):
         observations = []
@@ -65,13 +65,13 @@ class VectorAECWrapper:
 
         observations = []
         for act,env in zip(actions,self.envs):
-            observations.append(env.step(act,observe) if env.agent_selection == old_agent else env.observe(env.agent_selection))
+            observations.append(env.step(act,observe) if env.agent_selection == old_agent else None)
 
         self.agent_selection = self._agent_selector.next()
         self.agent_selection = self._find_active_agent()
         new_agent = self.agent_selection
 
-        env_dones,passes = self._collect_dicts()
+        env_dones = self._collect_dicts()
 
         # self.rewards = {agent: [env.rewards[agent] for env in self.envs] for agent in self.agents}
         # self.dones = {agent: [env.dones[agent] for env in self.envs] for agent in self.agents}
@@ -82,7 +82,9 @@ class VectorAECWrapper:
         for i,(env,done) in enumerate(zip(self.envs,env_dones)):
             if done:
                 observations[i] = env.reset(observe)
+            if observations[i] is None or self.agent_selection != env.agent_selection:
+                observations[i] = env.observe(self.agent_selection)
 
-        passes = [env.agent_selection != self.agent_selection for env in self.envs]
+        passes = np.array([env.agent_selection != self.agent_selection for env in self.envs],dtype=np.bool)
 
-        return (observations if observe else None),passes,env_dones
+        return (np.stack(observations) if observe else None),passes,env_dones
